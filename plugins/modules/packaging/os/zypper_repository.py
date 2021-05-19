@@ -7,6 +7,11 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import absolute_import, division, print_function
+from ansible.module_utils.basic import AnsibleModule, missing_required_lib
+from os import getenv
+from distutils.version import LooseVersion
+import traceback
+
 __metaclass__ = type
 
 
@@ -36,14 +41,14 @@ options:
         description:
             - A description of the repository
         type: str
-    disable_gpg_check:
+    gpg_signature_check
         description:
-            - Whether to disable GPG signature checking of
-              all packages. Has an effect only if state is
-              I(present).
+            - Control signature verification for the repository.
             - Needs zypper version >= 1.6.2.
-        type: bool
-        default: no
+        choices: ["default", "enable", "disable", "allow_unsigned",
+            "allow_unsigned_repo", "allow_unsigned_package"]
+        type: str
+        default: "default"
     autorefresh:
         description:
             - Enable autorefresh of the repository.
@@ -123,19 +128,24 @@ EXAMPLES = '''
     runrefresh: yes
 '''
 
-import traceback
 
 XML_IMP_ERR = None
 try:
     from xml.dom.minidom import parseString as parseXML
+
     HAS_XML = True
 except ImportError:
     XML_IMP_ERR = traceback.format_exc()
     HAS_XML = False
 
-from distutils.version import LooseVersion
+CONFIG_IMP_ERROR = None
+try:
+    from configparser import ConfigParser
 
-from ansible.module_utils.basic import AnsibleModule, missing_required_lib
+    HAS_CONFIG = True
+except ImportError:
+    CONFIG_IMP_ERROR = traceback.format_exc()
+    HAS_CONFIG = False
 
 
 REPO_OPTS = ['alias', 'name', 'priority', 'enabled', 'autorefresh', 'gpgcheck']
@@ -173,6 +183,26 @@ def _parse_repos(module):
         return []
     else:
         module.fail_json(msg='Failed to execute "%s"' % " ".join(cmd), rc=rc, stdout=stdout, stderr=stderr)
+
+
+def _parse_configs(module):
+    """parses the zypp and zypper config files and return a dictionary of options."""
+    if not HAS_CONFIG:
+        module.fail_json(
+            msg=missing_required_lib("python-configparser"), exception=CONFIG_IMP_ERROR
+        )
+
+    zypper_home_conf_path = getenv("HOME") + "/.zypper.conf"
+    zypper_global_conf_path = "/etc/zypp/zypper.conf"
+    zypp_conf_path = getenv("ZYPP_CONF", default="/etc/zypp/zypp.conf")
+
+    zypper_home_conf, zypper_global_conf, zypp_conf = ConfigParser()
+    zypper_home_conf.read(zypper_home_conf_path)
+    zypper_global_conf.read(zypper_global_conf_path)
+    zypp_conf.read(zypp_conf_path)
+    # Merge with precedence (greatest to least): $HOME/.zypper.conf, /etc/zypper/zypper.conf, $ZYPP_CONF
+    config = {**zypp_conf, **zypper_global_conf, **zypper_home_conf}
+    return config
 
 
 def _repo_changes(realrepo, repocmp):
@@ -308,16 +338,21 @@ def main():
             state=dict(choices=['present', 'absent'], default='present'),
             runrefresh=dict(required=False, default=False, type='bool'),
             description=dict(required=False),
-            disable_gpg_check=dict(required=False, default=False, type='bool'),
-            autorefresh=dict(required=False, default=True, type='bool', aliases=['refresh']),
-            priority=dict(required=False, type='int'),
-            enabled=dict(required=False, default=True, type='bool'),
-            overwrite_multiple=dict(required=False, default=False, type='bool'),
-            auto_import_keys=dict(required=False, default=False, type='bool'),
-        ),
-        supports_check_mode=False,
-        required_one_of=[['state', 'runrefresh']],
-    )
+            gpg_signature_check=dict(
+                required=False,
+                choices=[
+                    "default",
+                    "enable",
+                    "disable",
+                    "allow_unsigned",
+                    "allow_unsigned_repo",
+                    "allow_unsigned_package",
+                ],
+                default="default",
+            ),
+            supports_check_mode=False,
+            required_one_of=[['state', 'runrefresh']],
+        ))
 
     repo = module.params['repo']
     alias = module.params['name']
@@ -336,14 +371,28 @@ def main():
         'priority': module.params['priority'],
     }
     # rewrite bools in the language that zypper lr -x provides for easier comparison
+    if module.params['gpg_signature_check'] == 'enable':
+        gpgopts = ['1', '1', '1']
+    elif module.params['gpg_signature_check'] == 'disable':
+        gpgopts = ['0', '0', '0']
+    elif module.params['gpg_signature_check'] == 'allow_unsigned':
+        gpgopts = ['1', '0', '0']
+    elif module.params['gpg_signature_check'] == 'allow_unsigned_repo':
+        gpgopts = ['1', '0', '1']
+    elif module.params['gpg_signature_check'] == 'allow_unsigned_package':
+        gpgopts = ['1', '1', '0']
+    else:
+        config = _parse_configs(module)
+        # Guaranteed to exist. See comments in /etc/zypp/zypp.conf
+        gpg = '1' if config.getboolean('main', 'gpgcheck') else '0'
+        gpgopts = [gpg]
+        for opt in ['repo_gpgcheck', 'pkg_gpgcheck']:
+            if config.has_option('main', opt):
+                print('todo')
     if module.params['enabled']:
         repodata['enabled'] = '1'
     else:
         repodata['enabled'] = '0'
-    if module.params['disable_gpg_check']:
-        repodata['gpgcheck'] = '0'
-    else:
-        repodata['gpgcheck'] = '1'
     if module.params['autorefresh']:
         repodata['autorefresh'] = '1'
     else:

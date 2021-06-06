@@ -79,6 +79,7 @@ options:
 notes:
    - While it is possible to add an I(option) without specifying a I(value), this makes no sense.
    - As of Ansible 2.3, the I(dest) option has been changed to I(path) as default, but I(dest) still works as well.
+   - As of community.general 3.2.0, UTF-8 BOM markers are discarded when reading files.
 author:
     - Jan-Piet Mens (@jpmens)
     - Ales Nosek (@noseka1)
@@ -104,6 +105,7 @@ EXAMPLES = r'''
     backup: yes
 '''
 
+import io
 import os
 import re
 import tempfile
@@ -141,7 +143,7 @@ def do_ini(module, filename, section=None, option=None, value=None,
             os.makedirs(destpath)
         ini_lines = []
     else:
-        with open(filename, 'r') as ini_file:
+        with io.open(filename, 'r', encoding="utf-8-sig") as ini_file:
             ini_lines = ini_file.readlines()
 
     if module._diff:

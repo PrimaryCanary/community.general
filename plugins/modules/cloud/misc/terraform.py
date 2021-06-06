@@ -107,6 +107,12 @@ options:
         you intend to provision an entirely new Terraform deployment.
     default: false
     type: bool
+  overwrite_init:
+    description:
+      - Run init even if C(.terraform/terraform.tfstate) already exists in I(project_path).
+    default: true
+    type: bool
+    version_added: '3.2.0'
   backend_config:
     description:
       - A group of key-values to provide at init stage to the -backend-config parameter.
@@ -227,7 +233,7 @@ def get_version(bin_path):
 
 
 def preflight_validation(bin_path, project_path, version, variables_args=None, plan_file=None):
-    if project_path in [None, ''] or '/' not in project_path:
+    if project_path is None or '/' not in project_path:
         module.fail_json(msg="Path for Terraform project can not be None or ''.")
     if not os.path.exists(bin_path):
         module.fail_json(msg="Path for Terraform binary '{0}' doesn't exist on this host - check the path and try again please.".format(bin_path))
@@ -348,6 +354,7 @@ def main():
             backend_config=dict(type='dict', default=None),
             backend_config_files=dict(type='list', elements='path', default=None),
             init_reconfigure=dict(required=False, type='bool', default=False),
+            overwrite_init=dict(type='bool', default=True),
         ),
         required_if=[('state', 'planned', ['plan_file'])],
         supports_check_mode=True,
@@ -367,6 +374,7 @@ def main():
     backend_config = module.params.get('backend_config')
     backend_config_files = module.params.get('backend_config_files')
     init_reconfigure = module.params.get('init_reconfigure')
+    overwrite_init = module.params.get('overwrite_init')
 
     if bin_path is not None:
         command = [bin_path]
@@ -383,7 +391,8 @@ def main():
         APPLY_ARGS = ('apply', '-no-color', '-input=false', '-auto-approve')
 
     if force_init:
-        init_plugins(command[0], project_path, backend_config, backend_config_files, init_reconfigure, plugin_paths)
+        if overwrite_init or not os.path.isfile(os.path.join(project_path, ".terraform", "terraform.tfstate")):
+            init_plugins(command[0], project_path, backend_config, backend_config_files, init_reconfigure, plugin_paths)
 
     workspace_ctx = get_workspace_context(command[0], project_path)
     if workspace_ctx["current"] != workspace:
@@ -438,7 +447,14 @@ def main():
         command.append(plan_file)
 
     if needs_application and not module.check_mode and not state == 'planned':
-        rc, out, err = module.run_command(command, check_rc=True, cwd=project_path)
+        rc, out, err = module.run_command(command, check_rc=False, cwd=project_path)
+        if rc != 0:
+            if workspace_ctx["current"] != workspace:
+                select_workspace(command[0], project_path, workspace_ctx["current"])
+            module.fail_json(msg=err.rstrip(), rc=rc, stdout=out,
+                             stdout_lines=out.splitlines(), stderr=err,
+                             stderr_lines=err.splitlines(),
+                             cmd=' '.join(command))
         # checks out to decide if changes were made during execution
         if ' 0 added, 0 changed' not in out and not state == "absent" or ' 0 destroyed' not in out:
             changed = True

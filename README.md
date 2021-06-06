@@ -50,6 +50,8 @@ export COLLECTIONS_PATH=$(pwd)/collections:$COLLECTIONS_PATH
 
 You can find more information in the [developer guide for collections](https://docs.ansible.com/ansible/devel/dev_guide/developing_collections.html#contributing-to-collections), and in the [Ansible Community Guide](https://docs.ansible.com/ansible/latest/community/index.html).
 
+Also for some notes specific to this collection see [our CONTRIBUTING documentation](https://github.com/ansible-collections/community.general/blob/main/CONTRIBUTING.md).
+
 ### Running tests
 
 See [here](https://docs.ansible.com/ansible/devel/dev_guide/developing_collections.html#testing-collections).
@@ -58,10 +60,10 @@ See [here](https://docs.ansible.com/ansible/devel/dev_guide/developing_collectio
 
 We have a dedicated Working Group for Ansible development.
 
-You can find other people interested on the following Freenode IRC channels -
+You can find other people interested on the following [Libera.chat](https://libera.chat/) IRC channels -
 - `#ansible` - For general use questions and support.
-- `#ansible-devel` - For discussions on developer topics and code related to features or bugs.
-- `#ansible-community` - For discussions on community topics and community meetings.
+- `#ansible-devel` - For discussions on developer topics and code related to features or bugs in ansible-core.
+- `#ansible-community` - For discussions on community topics and community meetings, and for general development questions for community collections.
 
 For more information about communities, meetings and agendas see [Community Wiki](https://github.com/ansible/community/wiki/Community).
 
